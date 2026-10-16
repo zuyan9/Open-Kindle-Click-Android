@@ -163,10 +163,14 @@ public final class KindleClickPeripheral extends HidPeripheral {
     protected void onInputReportSubscribed() {
         if (lastPageKey != 0 && SystemClock.elapsedRealtime() - lastPageKeyTime < PAGE_KEY_RESEND_MS) {
             final int code = lastPageKey;
+            final long due = SystemClock.elapsedRealtime() + PAGE_KEY_RESEND_DELAY_MS;
             handler.postDelayed(new Runnable() {
                 @Override
                 public void run() {
-                    tapKey(code);
+                    // Not if the phone slept meanwhile (the delay stops counting): the key would come long after
+                    if (SystemClock.elapsedRealtime() - due < PAGE_KEY_RESEND_DELAY_MS) {
+                        tapKey(code);
+                    }
                 }
             }, PAGE_KEY_RESEND_DELAY_MS);
         }

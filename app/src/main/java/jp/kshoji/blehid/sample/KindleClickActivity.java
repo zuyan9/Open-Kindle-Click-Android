@@ -1,6 +1,7 @@
 package jp.kshoji.blehid.sample;
 
 import android.annotation.SuppressLint;
+import android.app.KeyguardManager;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
@@ -9,8 +10,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.media.AudioManager;
 import android.os.BatteryManager;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -18,6 +22,7 @@ import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.View.OnLongClickListener;
 import android.view.View.OnTouchListener;
+import android.view.WindowManager;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.CompoundButton.OnCheckedChangeListener;
@@ -28,6 +33,7 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
+import androidx.lifecycle.Lifecycle;
 
 import java.util.Arrays;
 
@@ -52,6 +58,7 @@ public class KindleClickActivity extends AbstractBleActivity {
     private static final int MAX_KINDLE_HANDLE = 0xFF; // a Kindle keeps report handles in 8 bits
 
     private KindleClickPeripheral kindleClick;
+    private ScreenOffVolumeKeys screenOffVolumeKeys;
     private boolean restartWhenBluetoothOn;
     private int phoneBatteryLevel = -1;
     private TextView statusText;
@@ -60,9 +67,21 @@ public class KindleClickActivity extends AbstractBleActivity {
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Over the lock screen, so the remote works as soon as the phone wakes
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true);
+        } else {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
+        }
         setContentView(layout.activity_kindle_click);
 
         setTitle(getString(string.kindle_click));
+        screenOffVolumeKeys = new ScreenOffVolumeKeys(this, new ScreenOffVolumeKeys.Listener() {
+            @Override
+            public void onVolumeKey(final boolean up) {
+                turnPageWithVolumeKey(up);
+            }
+        });
         statusText = findViewById(id.statusText);
         batteryText = findViewById(id.batteryText);
 
@@ -131,6 +150,9 @@ public class KindleClickActivity extends AbstractBleActivity {
         });
         final IntentFilter systemFilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
         systemFilter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
+        systemFilter.addAction(Intent.ACTION_SCREEN_ON);
+        systemFilter.addAction(Intent.ACTION_SCREEN_OFF);
+        systemFilter.addAction(Intent.ACTION_USER_PRESENT);
         ContextCompat.registerReceiver(this, systemReceiver, systemFilter, ContextCompat.RECEIVER_NOT_EXPORTED);
 
         updateBatteryLevel();
@@ -167,9 +189,43 @@ public class KindleClickActivity extends AbstractBleActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        // On screen again: the volume keys come here
+        screenOffVolumeKeys.setEnabled(false);
+        updateKeepScreenOn();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // The phone went to sleep with the remote on screen: keep the volume keys
+        if (!isInteractive() && !isFinishing()) {
+            screenOffVolumeKeys.setEnabled(true);
+        }
+    }
+
+    /**
+     * Keep the screen on while the phone is unlocked. Over the lock screen it times out as usual: the phone may have
+     * woken in a pocket.
+     */
+    private void updateKeepScreenOn() {
+        findViewById(id.activity_kindle_click)
+                .setKeepScreenOn(!((KeyguardManager) getSystemService(KEYGUARD_SERVICE)).isKeyguardLocked());
+    }
+
+    /**
+     * @return true while the phone is awake
+     */
+    private boolean isInteractive() {
+        return ((PowerManager) getSystemService(POWER_SERVICE)).isInteractive();
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
         unregisterReceiver(systemReceiver);
+        screenOffVolumeKeys.release();
         stopRemote();
     }
 
@@ -253,6 +309,25 @@ public class KindleClickActivity extends AbstractBleActivity {
     private final BroadcastReceiver systemReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(final Context context, final Intent intent) {
+            if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())) {
+                // Awake again, maybe with a call or an alarm on screen instead of the remote: give the keys back
+                // (unless the phone is already asleep again)
+                if (isInteractive()) {
+                    screenOffVolumeKeys.setEnabled(false);
+                }
+                return;
+            }
+            if (Intent.ACTION_USER_PRESENT.equals(intent.getAction())) {
+                updateKeepScreenOn();
+                return;
+            }
+            if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
+                // Asleep before the remote was paused (onPause takes the keys otherwise)
+                if (!isInteractive() && getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.RESUMED)) {
+                    screenOffVolumeKeys.setEnabled(true);
+                }
+                return;
+            }
             if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(intent.getAction())) {
                 // Turning Bluetooth off removes the remote: stop it while its GATT server is still registered,
                 // and start it again when Bluetooth is back. (If Bluetooth was off when this screen opened,
@@ -299,18 +374,28 @@ public class KindleClickActivity extends AbstractBleActivity {
 
     @Override
     public boolean dispatchKeyEvent(final KeyEvent event) {
-        // Volume keys turn pages too: down = forward, up = back
         final int keyCode = event.getKeyCode();
-        if (keyCode != KeyEvent.KEYCODE_VOLUME_DOWN && keyCode != KeyEvent.KEYCODE_VOLUME_UP) {
+        if ((keyCode != KeyEvent.KEYCODE_VOLUME_DOWN && keyCode != KeyEvent.KEYCODE_VOLUME_UP)
+                || ScreenOffVolumeKeys.isInCall((AudioManager) getSystemService(AUDIO_SERVICE))) {
             return super.dispatchKeyEvent(event);
         }
-        if (kindleClick != null && event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
-            if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-                kindleClick.pageNext();
-            } else {
-                kindleClick.pagePrevious();
-            }
+        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+            turnPageWithVolumeKey(keyCode == KeyEvent.KEYCODE_VOLUME_UP);
         }
         return true; // swallow key up too, or Android shows the volume panel
+    }
+
+    /**
+     * Volume keys turn pages too: down = forward, up = back
+     */
+    private void turnPageWithVolumeKey(final boolean up) {
+        if (kindleClick == null) {
+            return;
+        }
+        if (up) {
+            kindleClick.pagePrevious();
+        } else {
+            kindleClick.pageNext();
+        }
     }
 }
