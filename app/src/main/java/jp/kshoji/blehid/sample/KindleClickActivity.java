@@ -153,7 +153,9 @@ public class KindleClickActivity extends AbstractBleActivity {
         systemFilter.addAction(Intent.ACTION_SCREEN_ON);
         systemFilter.addAction(Intent.ACTION_SCREEN_OFF);
         systemFilter.addAction(Intent.ACTION_USER_PRESENT);
-        ContextCompat.registerReceiver(this, systemReceiver, systemFilter, ContextCompat.RECEIVER_NOT_EXPORTED);
+        // Exported: SystemUI sends USER_PRESENT, and a non-exported receiver only gets the system's broadcasts.
+        // These are all protected broadcasts, so no app can send them.
+        ContextCompat.registerReceiver(this, systemReceiver, systemFilter, ContextCompat.RECEIVER_EXPORTED);
 
         updateBatteryLevel();
         updateStatus();
