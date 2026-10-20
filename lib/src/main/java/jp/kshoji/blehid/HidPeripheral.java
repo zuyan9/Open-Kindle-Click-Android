@@ -539,8 +539,10 @@ public abstract class HidPeripheral {
             return;
         }
 
-        gattServiceBeingAdded = pendingGattServices.pollFirst();
-        if (gattServiceBeingAdded == null) {
+        // onServiceAdded may clear gattServiceBeingAdded on a binder thread before addService returns
+        final BluetoothGattService service = pendingGattServices.pollFirst();
+        gattServiceBeingAdded = service;
+        if (service == null) {
             gattServicesReady = true;
             Log.d(TAG, "All GATT services added.");
             if (advertisingRequested) {
@@ -549,12 +551,11 @@ public abstract class HidPeripheral {
             return;
         }
 
-        final boolean accepted = gattServer.addService(gattServiceBeingAdded);
-        Log.d(TAG, "Adding Service: " + gattServiceBeingAdded.getUuid() + ", accepted: " + accepted);
+        final boolean accepted = gattServer.addService(service);
+        Log.d(TAG, "Adding Service: " + service.getUuid() + ", accepted: " + accepted);
         if (!accepted) {
-            final BluetoothGattService retry = gattServiceBeingAdded;
             gattServiceBeingAdded = null;
-            pendingGattServices.offerFirst(retry);
+            pendingGattServices.offerFirst(service);
             handler.postDelayed(new Runnable() {
                 @Override
                 public void run() {
