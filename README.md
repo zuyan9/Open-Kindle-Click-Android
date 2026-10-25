@@ -35,7 +35,7 @@ To pair, open Settings › Wi-Fi & Bluetooth › Bluetooth devices on the Kindle
 
 Known limits:
 
-- The remote can't wake the Kindle. After you wake it, the remote works again in about 3 seconds.
+- ~~The remote can't wake the Kindle. After you wake it, the remote works again in about 3 seconds.~~ Fixed in firmware version 5.20.1.0.2
 - On some phones (seen on a Samsung), the Kindle keeps its old connection when the app is closed and reopened, and ignores the remote until it reconnects. The app says so; turn the Kindle's Bluetooth off and on.
 - Kindle firmware 5.20.1 doesn't count remote page turns as activity, so the Kindle still sleeps when its sleep timer runs out after the last screen touch. A longer timer helps (Settings › Device options › Sleep timer).
 - To get the volume keys with the screen off, the remote tells Android it's playing to another device, as casting apps do. No player shows, but apps that list what's playing, like some smartwatch music controls, may show it.
