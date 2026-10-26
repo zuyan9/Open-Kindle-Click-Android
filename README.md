@@ -63,5 +63,6 @@ LICENSE
 [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
 
 ## Reference
-[Open-Kindle-Click-nRF52840](https://github.com/zuyan9/Open-Kindle-Click-nRF52840)
-
+[Flipper-Zero-Kindle-Click](https://github.com/zuyan9/Flipper-Zero-Kindle-Click)  
+[Open-Kindle-Click-ESP32-C6](https://github.com/zuyan9/Open-Kindle-Click-ESP32-C6)  
+[Open-Kindle-Click-nRF52840](https://github.com/zuyan9/Open-Kindle-Click-nRF52840)  
